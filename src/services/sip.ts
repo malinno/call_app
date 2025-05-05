@@ -1,4 +1,4 @@
-import JsSIP from 'jssip';
+import {PjSipService} from 'react-native-pjsip';
 
 type CreateSipUAParams = {
   server: string;
@@ -8,44 +8,84 @@ type CreateSipUAParams = {
   onRegistrationFailed?: (err: string) => void;
 };
 
-export function createSipUA({
+export async function createSipUA({
   server,
   username,
   password,
   onRegistered,
   onRegistrationFailed,
 }: CreateSipUAParams) {
-  const socket = new JsSIP.WebSocketInterface(`wss://c6.zsolution.vn:8089/ws`);
-  const configuration = {
-    sockets: [socket],
-    uri: `sip:442002@c6.zsolution.vn`,
-    // uri: `sip:${username}@${server}`,
-    password: 'f99@2022',
-  };
+  try {
+    // Khởi tạo PjSip service
+    const pjsip = new PjSipService();
 
-  const ua = new JsSIP.UA(configuration);
+    // Cấu hình PjSip
+    const config = {
+      ua: {
+        max_calls: 4,
+        user_agent: 'React Native PjSip',
+        stun_srv: ['stun:stun.l.google.com:19302'],
+      },
+      account: {
+        id: username,
+        registrar: server,
+        username: username,
+        password: password,
+        transport_id: 'tcp0',
+      },
+      transport: {
+        type: 'tcp',
+        port: 0,
+        public_addr: server,
+      },
+    };
 
-  ua.on('connected', () => {
-    // Kết nối WebSocket thành công
-    console.log('SIP connected');
-  });
+    // Khởi tạo PjSip
+    await pjsip.start(config);
 
-  ua.on('registered', () => {
-    if (onRegistered) onRegistered();
-  });
+    // Đăng ký các event handlers
+    pjsip.on('registration_changed', data => {
+      if (data.status === 'OK') {
+        if (onRegistered) onRegistered();
+      } else {
+        if (onRegistrationFailed) onRegistrationFailed(data.status);
+      }
+    });
 
-  ua.on('registrationFailed', (e) => {
-    console.log('SIP registration failed', e);
-    if (onRegistrationFailed) onRegistrationFailed(e.cause || 'Đăng ký SIP thất bại');
-  });
+    pjsip.on('call_received', call => {
+      // Xử lý khi có cuộc gọi đến
+      console.log('Incoming call from:', call.remote_uri);
+    });
 
-  ua.on('newRTCSession', (data: any) => {
-    // Xử lý khi có cuộc gọi đến hoặc đi
-    const session = data.session;
-    // ...
-  });
+    pjsip.on('call_changed', call => {
+      // Xử lý khi trạng thái cuộc gọi thay đổi
+      console.log('Call state changed:', call.state);
+    });
 
-  ua.start();
+    return pjsip;
+  } catch (error) {
+    console.error('Failed to initialize PjSip:', error);
+    throw error;
+  }
+}
 
-  return ua;
+// Hàm để thực hiện cuộc gọi
+export async function makeCall(pjsip: PjSipService, destination: string) {
+  try {
+    const call = await pjsip.makeCall(destination);
+    return call;
+  } catch (error) {
+    console.error('Failed to make call:', error);
+    throw error;
+  }
+}
+
+// Hàm để kết thúc cuộc gọi
+export async function endCall(pjsip: PjSipService, callId: string) {
+  try {
+    await pjsip.endCall(callId);
+  } catch (error) {
+    console.error('Failed to end call:', error);
+    throw error;
+  }
 }
